@@ -2,5 +2,6 @@ void straight (void);
 void turnperp (void);
 void stop (void);
 void main(void){
-    printf("ok");
+    printf("ok");gfg
 }
+h
