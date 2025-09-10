@@ -4,4 +4,4 @@ void stop (void);
 void main(void){
     printf("ok");gfg
 }
-h
+gg
