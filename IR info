@@ -1,0 +1,11 @@
+IR Packet info:
+
+6x  IRLB8743  https://www.infineon.com/assets/row/public/documents/24/49/infineon-irlb8743-datasheet-en.pdf?fileId=5546d462533600a4015356605d6b2593
+
+4x LM324N  -op amp-  https://www.ti.com/lit/ds/symlink/lm324-n.pdf?ts=1759284064732&ref_url=https%253A%252F%252Fwww.ti.com%252Fproduct%252FLM324-N
+
+4x LM339N  -comparitor- https://www.ti.com/lit/ds/symlink/lm339-n.pdf?ts=1759336875886&ref_url=https%253A%252F%252Fwww.ti.com%252Fproduct%252FLM339-N
+
+4x led?
+
+4x transitor?
