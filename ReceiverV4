@@ -1,30 +1,23 @@
 #include <msp430.h>
-
 #define CMD_LENGTH 4
 #define F_SMCLK (8000000UL)    // SMCLK = 8 MHz
 #define F_PWM   20000UL        // PWM frequency = 20 kHz
 #define CCR0VAL ((F_SMCLK/F_PWM)-1)  // Timer period
 
-
 int main(void)
 {
-    
     WDTCTL = WDTPW | WDTHOLD;
     PM5CTL0 &= ~LOCKLPM5;
 
-    // LED setup - Command LEDs
-    P3DIR |= BIT3 | BIT6 | BIT7;  // P3.3, P3.6, P3.7
-    P2DIR |= BIT2;                // P2.2 as command LED
-    P3OUT &= ~(BIT3 | BIT6 | BIT7);
-    P2OUT &= ~BIT2;
+    // LED Setup
     P1DIR |= BIT0 | BIT3;        // P1.0 LED, P1.3 IN1
     P2DIR |= BIT3 | BIT6 | BIT7; // P2.3 IN4, P2.6 ENA, P2.7 ENB
     P3DIR |= BIT0 | BIT1;        // P3.0 IN2, P3.1 IN3
 
-    // TSOP receiver setup (P2.1)
-    P2DIR &= ~BIT1;    // Input
+    // Receiver setup
+    P2DIR &= ~BIT1;    // Input from Receiver
     P2REN &= ~BIT1;    // No pull-up/pull-down
-    P2SEL0 &= ~BIT1;   // GPIO function
+    P2SEL0 &= ~BIT1;   // enable GPIO 
     P2SEL1 &= ~BIT1;
      P2SEL0 |= BIT6 | BIT7;   
     P2SEL1 &= ~(BIT6 | BIT7);
@@ -38,17 +31,6 @@ int main(void)
 
     TB0CTL   = TBSSEL_2 | MC_1 | TBCLR;  // SMCLK, Up mode, clear timer
 
-    // Startup blink - all command LEDs
-    unsigned int i;
-    for(i = 0; i < 6; i++) {
-        P3OUT |= (BIT3 | BIT6 | BIT7);
-        P2OUT |= BIT2;
-        __delay_cycles(300000);
-        P3OUT &= ~(BIT3 | BIT6 | BIT7);
-        P2OUT &= ~BIT2;
-        __delay_cycles(300000);
-    }
-
     while (1)
     {
         unsigned char received_cmd = 0;
@@ -61,7 +43,7 @@ int main(void)
         unsigned int burst_lengths[CMD_LENGTH];
         unsigned int j;
 
-        // Wait for start of signal (LOW on TSOP - active low)
+        // Wait for signal
         timeout = 0;
         while((P2IN & BIT1) != 0) {  // Wait for LOW
             timeout++;
@@ -72,17 +54,17 @@ int main(void)
             __delay_cycles(10);
         }
 
-        // If we timed out waiting for signal, continue
+        // Keep waiting
         if(timeout > 50000) {
             continue;
         }
 
-        // Signal detected - decode 4 bits
+        // Once Signal is detected
         valid_decode = 1;
         
         for(j = 0; j < CMD_LENGTH; j++)
         {
-            // Measure LOW pulse length (carrier burst)
+            // Count Burst Length
             burst_length = 0;
             while((P2IN & BIT1) == 0) {  // While LOW (carrier present)
                 burst_length++;
@@ -102,7 +84,7 @@ int main(void)
             if(burst_length < min_burst) min_burst = burst_length;
             if(burst_length > max_burst) max_burst = burst_length;
 
-            // Wait for gap between bits (HIGH period)
+            // Wait for gap post valid bit
             if(j < CMD_LENGTH - 1) {
                 timeout = 0;
                 while((P2IN & BIT1) != 0) {  // Wait for next LOW
@@ -122,7 +104,7 @@ int main(void)
             continue;
         }
 
-        // Validate we have meaningful difference between short and long bursts
+        // Check for meaningful difference between seperate bits
         if(max_burst < (min_burst * 130 / 100)) {  // 30% difference using integer math
             continue;
         }
@@ -149,48 +131,38 @@ int main(void)
         P3OUT &= ~(BIT3 | BIT6 | BIT7);
         P2OUT &= ~BIT2;
 
-        // Light up corresponding LED based on received command
         switch(received_cmd)
         {
             case 0x01:  // 0001 - Button 1
-                P3OUT |= BIT3;
-                
                 TB0CCR6  = (CCR0VAL+1) * 0.75; 
                 TB0CCR5  = (CCR0VAL+1) * 0.75;
                 Straight();
                 break;
                 
             case 0x02:  // 0010 - Button 2  
-                P3OUT |= BIT6;
                 TB0CCR6  = (CCR0VAL+1) * 0.33; 
                 TB0CCR5  = (CCR0VAL+1) * 0.75;
                 Straight();
                 break;
                 
             case 0x04:  // 0100 - Button 3
-                P3OUT |= BIT7;
                 TB0CCR6  = (CCR0VAL+1) * 0.75; 
                 TB0CCR5  = (CCR0VAL+1) * 0.33;
                 Straight();
                 break;
                 
             case 0x08:  // 1000 - Button 4
-                P2OUT |= BIT2;
                  Back();
             default:
                 Stop1();
-            TB0CCR6  = (CCR0VAL+1) * 0.75; 
-            TB0CCR5  = (CCR0VAL+1) * 0.75;
+                TB0CCR6  = (CCR0VAL+1) * 0.75; 
+                TB0CCR5  = (CCR0VAL+1) * 0.75;
         }
        
 
         
         // Keep LED on for 1 second to show reception
         __delay_cycles(1000000);
-        
-        // Turn off LED after display
-        P3OUT &= ~(BIT3 | BIT6 | BIT7);
-        P2OUT &= ~BIT2;
         
         // Brief delay before next reception
         __delay_cycles(50000);
