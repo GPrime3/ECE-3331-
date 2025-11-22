@@ -1,0 +1,286 @@
+#include <msp430.h>
+
+// ===================== Config =====================
+#define CMD_LENGTH 4
+#define F_SMCLK (1000000UL)
+#define F_PWM   20000UL
+#define CCR0VAL ((F_SMCLK/F_PWM)-1)
+
+// ===================== Prototypes =====================
+static unsigned char decode_one_frame_strict(unsigned char* out_mask);
+static unsigned char confirm_same_mask(unsigned char expect_mask);
+
+void Straight(void);
+void Back(void);
+void Stop1(void);
+void turnPerp(void);
+void turnPerp1(void);
+void move_servo(void);
+
+// ===================== Modified Decoder - Supports 0x0C =====================
+static unsigned char decode_one_frame_strict(unsigned char* out_mask)
+{
+    unsigned int burst[CMD_LENGTH];
+    unsigned int gap[CMD_LENGTH-1];
+    unsigned int j, timeout;
+
+    // Wait for first LOW
+    timeout = 0;
+    while ((P2IN & BIT1) != 0) {
+        if (++timeout > 30000) return 0;
+        __delay_cycles(10);
+    }
+
+    // Measure all bursts and gaps
+    for (j = 0; j < CMD_LENGTH; j++) {
+        unsigned int bl = 0;
+        while ((P2IN & BIT1) == 0) {
+            if (++bl > 20000) return 0;
+            __delay_cycles(10);
+        }
+        burst[j] = bl;
+
+        if (j < (CMD_LENGTH - 1)) {
+            unsigned int gh = 0;
+            while ((P2IN & BIT1) != 0) {
+                if (++gh > 20000) return 0;
+                __delay_cycles(10);
+            }
+            gap[j] = gh;
+        }
+    }
+
+    // FIXED: Find minimum and maximum bursts instead of average
+    unsigned int min_burst = burst[0];
+    unsigned int max_burst = burst[0];
+    
+    for (j = 1; j < CMD_LENGTH; j++) {
+        if (burst[j] < min_burst) min_burst = burst[j];
+        if (burst[j] > max_burst) max_burst = burst[j];
+    }
+
+    // Threshold = midpoint between min and max
+    unsigned int threshold = (min_burst + max_burst) / 2;
+
+    // Build mask: mark all bursts > threshold as "long"
+    unsigned char mask = 0;
+    unsigned char long_count = 0;
+    
+    for (j = 0; j < CMD_LENGTH; j++) {
+        if (burst[j] > threshold) {  // Above midpoint = long
+            mask |= (1u << (CMD_LENGTH - 1 - j));
+            long_count++;
+        }
+    }
+
+    // Validate pattern
+    if (long_count == 1) {
+        if (mask != 0x08 && mask != 0x01 && mask != 0x04 && mask != 0x02) return 0;
+    } else if (long_count == 2) {
+        if (mask != 0x0C) return 0;
+    } else {
+        return 0;
+    }
+
+    // Check gap consistency (±25%)
+    {
+        unsigned int gmin = gap[0], gmax = gap[0];
+        for (j = 1; j < CMD_LENGTH-1; j++) {
+            if (gap[j] < gmin) gmin = gap[j];
+            if (gap[j] > gmax) gmax = gap[j];
+        }
+        if (gmax * 100 > gmin * 125) return 0;
+    }
+
+    *out_mask = mask;
+    return 1;
+}
+
+
+static unsigned char confirm_same_mask(unsigned char expect_mask)
+{
+    unsigned int tries;
+    unsigned char m2 = 0;
+    for (tries = 0; tries < 3; tries++) {
+        if (decode_one_frame_strict(&m2) && m2 == expect_mask) return 1;
+        __delay_cycles(8000);
+    }
+    return 0;
+}
+
+// ===================== Main =====================
+int main(void)
+{
+    unsigned int i;
+
+    WDTCTL = WDTPW | WDTHOLD;
+    PM5CTL0 &= ~LOCKLPM5;
+
+    // LEDs
+    P3DIR |= BIT6 | BIT7;
+    P2DIR |= BIT2;
+    P1DIR |= BIT0;
+    P3OUT &= ~(BIT6 | BIT7);
+    P2OUT &= ~BIT2;
+    P1OUT &= ~BIT0;
+
+    // Motor pins
+    P1DIR |= BIT3;
+    P2DIR |= BIT3 | BIT6 | BIT7;
+    P3DIR |= BIT0 | BIT1;
+
+    // Configure P3.3 for TA1.1 servo output
+    P3DIR |= BIT3;
+    P3SEL1 |= BIT3;
+    P3SEL0 &= ~BIT3;
+
+    // TSOP receiver
+    P2DIR &= ~BIT1;
+    P2REN &= ~BIT1;
+    P2SEL0 &= ~BIT1;
+    P2SEL1 &= ~BIT1;
+
+    // Motor PWM on TB0
+    P2SEL0 |= BIT6 | BIT7;
+    P2SEL1 &= ~(BIT6 | BIT7);
+    TB0CCR0  = CCR0VAL;
+    TB0CCTL5 = OUTMOD_7;
+    TB0CCTL6 = OUTMOD_7;
+    TB0CCR5  = (CCR0VAL+1) * 0.50;
+    TB0CCR6  = (CCR0VAL+1) * 0.50;
+    TB0CTL   = TBSSEL__SMCLK | MC__UP | TBCLR;
+
+    // Timer A1 for servo PWM (always running)
+    TA1CCR0 = 20000 - 1;
+    TA1CCTL1 = OUTMOD_7;
+    TA1CCR1 = 1500;
+    TA1CTL = TASSEL__SMCLK | MC__UP | TACLR;
+
+    __enable_interrupt();
+    Stop1();
+
+    // Startup blink
+    for(i = 0; i < 6; i++) {
+        P1OUT ^= BIT0;
+        __delay_cycles(300000);
+    }
+    P1OUT &= ~BIT0;
+
+    while (1)
+    {
+        unsigned char mask = 0;
+
+        if (decode_one_frame_strict(&mask)) {
+            if (!confirm_same_mask(mask)) {
+                __delay_cycles(10000);
+                continue;
+            }
+
+            // Clear all LEDs
+            P3OUT &= ~(BIT6 | BIT7);
+            P2OUT &= ~BIT2;
+            P1OUT &= ~BIT0;
+
+            switch(mask)
+            {
+                case 0x01:  // 0001 - Forward
+                    P1OUT |= BIT0;
+                    TB0CCR6 = (CCR0VAL+1) * 0.75;
+                    TB0CCR5 = (CCR0VAL+1) * 0.75;
+                    Straight();
+                    break;
+
+                case 0x02:  // 0010 - Turn left
+                    P3OUT |= BIT6;
+                    turnPerp();
+                    break;
+
+                case 0x04:  // 0100 - Turn right
+                    P3OUT |= BIT7;
+                    turnPerp1();
+                    break;
+
+                case 0x08:  // 1000 - Backward
+                    P2OUT |= BIT2;
+                    TB0CCR6 = (CCR0VAL+1) * 0.75;
+                    TB0CCR5 = (CCR0VAL+1) * 0.75;
+                    Back();
+                    break;
+
+                case 0x0C:  // 1100 - Servo attack
+                    TA1CCR1 = 1000;             // 0 degrees
+                 __delay_cycles(1500000);
+    
+                    TA1CCR1 = 2300;             // 90 degrees
+                    __delay_cycles(1500000);
+                    break;
+
+                default:
+                    break;
+            }
+
+            // Clear LEDs after command
+            P3OUT &= ~(BIT6 | BIT7);
+            P2OUT &= ~BIT2;
+            P1OUT &= ~BIT0;
+            __delay_cycles(50000);
+
+        } else {
+            __delay_cycles(20000);
+        }
+    }
+}
+
+// ===================== Servo Function =====================
+void move_servo(void) {
+    TA1CCR1 = 1000;             // 0 degrees
+    __delay_cycles(1500000);
+    
+    TA1CCR1 = 2300;             // 90 degrees
+    __delay_cycles(1500000);
+    
+    TA1CCR1 = 1000;             // 0 degrees
+    __delay_cycles(1500000);
+    
+    TA1CCR1 = 1500;             // Neutral
+}
+
+// ===================== Motor Functions =====================
+void Straight(void){
+    P1OUT |=  BIT3;
+    P3OUT &= ~BIT0;
+    P3OUT |=  BIT1;
+    P2OUT &= ~BIT3;
+}
+
+void Back(void){
+    P1OUT &= ~BIT3;
+    P3OUT |=  BIT0;
+    P3OUT &= ~BIT1;
+    P2OUT |=  BIT3;
+}
+
+void Stop1(void){
+    P1OUT &= ~BIT3;
+    P3OUT &= ~BIT0;
+    P3OUT &= ~BIT1;
+    P2OUT &= ~BIT3;
+}
+
+void turnPerp(void){
+    TB0CCR6 = (CCR0VAL+1) * 0.75;
+    TB0CCR5 = (CCR0VAL+1) * 0.75;
+    P1OUT &= ~BIT3;
+    P3OUT |=  BIT0;
+    P3OUT |=  BIT1;
+    P2OUT &= ~BIT3;
+}
+
+void turnPerp1(void){
+    TB0CCR6 = (CCR0VAL+1) * 0.75;
+    TB0CCR5 = (CCR0VAL+1) * 0.75;
+    P1OUT |=  BIT3;
+    P3OUT &= ~BIT0;
+    P3OUT &= ~BIT1;
+    P2OUT |=  BIT3;
+}
