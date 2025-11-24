@@ -1,17 +1,16 @@
-#include <msp430.h>
-
-// Much simpler timing - no PWM, just on/off with delays
-#define BIT_DURATION    10000  // 10ms per bit - slow enough for receiver
+// Code Implements IR Emission rule preventing emission of 3+ Signals when holding a button.
+// Rules comply with Demo Day Tournament
+#include <msp430.h> //Import Library
+#define BIT_DURATION    10000  // 10ms per bit 
 #define CARRIER_CYCLES  38     // 38 cycles of 38kHz per carrier burst
 #define CARRIER_PERIOD  10     // 26 cycles ≈ 38kHz (8MHz/38kHz ≈ 210)
 
-unsigned char signal[4];
+unsigned char signal[4]; // Signal array
 unsigned int repeat_counter = 0;
-unsigned int send_count = 0;        // NEW: Track number of sends
+unsigned int send_count = 0;        // Tracks number of sends
 #define REPEAT_DELAY    50
-#define MAX_SENDS       3           // NEW: Maximum signals per button hold
+#define MAX_SENDS       3           // Maximum signals per button hold
 
-// Simple function to generate 38kHz carrier bursts
 void carrier_burst(unsigned int duration) {
     unsigned int i, j;
     
@@ -26,8 +25,7 @@ void carrier_burst(unsigned int duration) {
 
 void send_signal(void) {
     unsigned long i;
-    
-    // Send all 4 bits with clear separation
+    // Sending 4 bit signal
     for(i = 0; i < 4; i++) {
         if(signal[i] == 1) {
             // Bit '1': Long carrier burst
@@ -38,7 +36,7 @@ void send_signal(void) {
         }
         
         // Fixed gap between bits (no carrier)
-        __delay_cycles(BIT_DURATION);
+        __delay_cycles(BIT_DURATION); //Seperation between each bit
     }
 }
 
@@ -47,10 +45,10 @@ int main(void) {
     unsigned char button_state = 0;
     unsigned char last_button_state = 0;
 
-    WDTCTL = WDTPW | WDTHOLD;
-    PM5CTL0 &= ~LOCKLPM5;
+    WDTCTL = WDTPW | WDTHOLD; //Setup Watchdog Timer
+    PM5CTL0 &= ~LOCKLPM5; // Disable Low Power Mode
 
-    // LEDs
+    // LEDs // NOT used
     P2DIR |= BIT1 | BIT2;
     P1DIR |= BIT3 | BIT5;
     P3DIR |= BIT6;
@@ -70,13 +68,13 @@ int main(void) {
     P1REN |= (BIT3);
     P1OUT &= ~(BIT3);
 
-    // P2.7 as simple GPIO for IR LED (no PWM)
+    // P2.7 for PWM generation for IR emitter
     P2DIR |= BIT7;
     P2SEL0 &= ~BIT7;
     P2SEL1 &= ~BIT7;
     P2OUT &= ~BIT7;
 
-    // Startup blink
+    // Startup blink // Only for Inital verification
     for(i = 0; i < 5; i++) {
         P1OUT ^= BIT5;
         __delay_cycles(800000);
@@ -84,7 +82,7 @@ int main(void) {
     P1OUT &= ~BIT5;
     __delay_cycles(1000000);
 
-    while(1) {
+    while(1) { // Runs Forever
         __delay_cycles(2000);
         
         // Read button states
@@ -114,7 +112,7 @@ int main(void) {
                 send_count = 0;         // Reset send counter on new button
                 
                 switch(button_state) {
-                    case 1:  // 0001
+                    case 1:  // 0001 // Forward Signal
                         P1OUT &= ~BIT3;
                         signal[0] = 0; signal[1] = 0; signal[2] = 0; signal[3] = 1;
                         break;
@@ -162,7 +160,7 @@ int main(void) {
             send_count = 0;
         }
         
-        // Reset LEDs when button released
+        // Reset LEDs when button released // NOT used
         if(button_state == 0 && last_button_state != 0) {
             P1OUT |= BIT3;
             P3OUT |= BIT6;
