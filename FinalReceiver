@@ -1,4 +1,5 @@
 //Code for microcontroller receiving IR signal 
+//Removed ISR from Receiver V6
 #include <msp430.h>
 #define CMD_LENGTH 4
 #define F_SMCLK (1000000UL)
