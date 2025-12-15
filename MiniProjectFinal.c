@@ -1,10 +1,10 @@
 #include <driverlib.h>
 #include <msp430.h>
-
+//Motors in this project ran using a H-bridge that controls direction of motors using IN pins 1 through 4
 // --- Function Prototypes ---
-void straight(void);
-void turn(void);
-
+void Straight(void);
+void turnPerp(void);
+void Stop1(void);
 // PWM configuration
 #define F_SMCLK (8000000UL)    // SMCLK = 8 MHz
 #define F_PWM   20000UL        // PWM frequency = 20 kHz
@@ -12,7 +12,7 @@ void turn(void);
 
 int main(void) {
     WDTCTL  = WDTPW | WDTHOLD;   // Stop watchdog timer
-    PM5CTL0 &= ~LOCKLPM5;        // Unlock GPIOs (FRAM devices)
+    PM5CTL0 &= ~LOCKLPM5; 
 
     // --- PIN setup ---
     P1DIR |= BIT0 | BIT3;        // P1.0 LED, P1.3 IN1
@@ -44,21 +44,21 @@ int main(void) {
 void Straight(void){
     P1OUT |= BIT3;   // IN1 
     P3OUT &= ~BIT0;  // IN2
-    P3OUT |= BIT1; // in3
+    P3OUT |= BIT1; // IN3
     P2OUT |= BIT3;  // IN4
 }
 
 void turnPerp(void){
     P1OUT &= ~BIT3;   // IN1 
     P3OUT |= BIT0;  // IN2
-    P3OUT &= ~BIT1; // in3
+    P3OUT &= ~BIT1; // IN3
     P2OUT |= BIT3;  // IN4
 
 }
 void Stop1(void){
     P1OUT &= ~BIT3;   // IN1 
     P3OUT &= ~BIT0;  // IN2
-    P3OUT &= ~BIT1; // in3
+    P3OUT &= ~BIT1; // IN3
     P2OUT &= ~BIT3;  // IN4
 
 }
