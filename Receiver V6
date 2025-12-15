@@ -1,25 +1,20 @@
+//Hammer not integrated in this receiving code
 #include <msp430.h>
-
-// ===================== Config =====================
 #define CMD_LENGTH 4
 #define F_SMCLK (8000000UL)          // SMCLK = 8 MHz
 #define F_PWM   20000UL              // PWM frequency = 20 kHz
 #define CCR0VAL ((F_SMCLK/F_PWM)-1)  // Timer_B0 period for PWM
 
-// Inactivity timeout on Timer_A1 (ACLK continuous).
-// Choose a window larger than your frame repeat interval so only a big gap stops.
 #define ACLK_HZ       32768UL
 #define TIMEOUT_MS    900UL
 #define TIMEOUT_TICKS ((ACLK_HZ * TIMEOUT_MS) / 1000UL)
 
-// ===================== Prototypes and globals =====================
+//Prototypes
 static inline void timeout_arm(void);
 static inline void timeout_refresh(void);
 static inline void timeout_disarm(void);
-
-static unsigned char decode_one_frame_strict(unsigned char* out_mask);
-static unsigned char confirm_same_mask(unsigned char expect_mask);
-
+static unsigned char Decode(unsigned char* out_mask);
+static unsigned char Confirm(unsigned char expect_mask);
 void Straight(void);
 void Back(void);
 void Stop1(void);
@@ -28,33 +23,27 @@ void turnPerp1(void);
 
 static volatile unsigned char ir_inactive = 0;  // set by ISR on timeout
 
-// ===================== Timeout helpers (TA1 CCR1, ACLK continuous) =====================
 static inline void timeout_arm(void){
     TA1CCTL1 &= ~CCIFG;
-    TA1CCR1 = TA1R + (unsigned int)TIMEOUT_TICKS;   // schedule compare (one-shot)
+    TA1CCR1 = TA1R + (unsigned int)TIMEOUT_TICKS;   
     TA1CCTL1 |= CCIE;                                // enable CCR1 interrupt
 }
 static inline void timeout_refresh(void){
     TA1CCTL1 &= ~CCIFG;
-    TA1CCR1 = TA1R + (unsigned int)TIMEOUT_TICKS;   // push expiration into future
+    TA1CCR1 = TA1R + (unsigned int)TIMEOUT_TICKS;   
 }
 static inline void timeout_disarm(void){
     TA1CCTL1 &= ~(CCIE | CCIFG);                     // disable + clear
 }
 
-// ===================== Strict 4-burst decoder (one-long, three-short) =====================
-// Tighter acceptance: 
-// - exactly one LOW burst is "long" and >= 2.2x the largest "short"
-// - the three "short" bursts are within ±15% of each other
-// - the three HIGH gaps between bursts are within ±25% of each other
 // - only masks 1000, 0001, 0100, 0010 are accepted
-static unsigned char decode_one_frame_strict(unsigned char* out_mask)
+static unsigned char Decode(unsigned char* out_mask)
 {
     unsigned int burst[CMD_LENGTH];
     unsigned int gap[CMD_LENGTH-1];
     unsigned int j, timeout;
 
-    // Wait for first LOW (start of frame) on TSOP output (active LOW on carrier)
+    //Active LOW receiver, so waits for LOW
     timeout = 0;
     while ((P2IN & BIT1) != 0) {            // wait for LOW
         if (++timeout > 30000) return 0;    // no start seen
@@ -62,7 +51,6 @@ static unsigned char decode_one_frame_strict(unsigned char* out_mask)
     }
 
     for (j = 0; j < CMD_LENGTH; j++) {
-        // Measure LOW burst length (carrier present => TSOP output LOW)
         unsigned int bl = 0;
         while ((P2IN & BIT1) == 0) {
             if (++bl > 20000) return 0;     // abnormal long -> invalid
@@ -70,7 +58,6 @@ static unsigned char decode_one_frame_strict(unsigned char* out_mask)
         }
         burst[j] = bl;
 
-        // If not last bit, measure HIGH gap and wait for next LOW
         if (j < (CMD_LENGTH - 1)) {
             unsigned int gh = 0;
             while ((P2IN & BIT1) != 0) {    // idle HIGH between bursts
@@ -87,7 +74,6 @@ static unsigned char decode_one_frame_strict(unsigned char* out_mask)
         if (burst[j] > max_b) { max_b = burst[j]; max_i = j; }
     }
 
-    // Gather shorts and check tight clustering (±15%)
     unsigned int shorts[3], si = 0;
     for (j = 0; j < CMD_LENGTH; j++) {
         if (j == max_i) continue;
@@ -99,22 +85,21 @@ static unsigned char decode_one_frame_strict(unsigned char* out_mask)
         if (shorts[si] < smin) smin = shorts[si];
         if (shorts[si] > smax) smax = shorts[si];
     }
-    if (smax * 100 > smin * 115) return 0;      // shorts not tight enough
+    if (smax * 100 > smin * 115) return 0;      // toss invalid signal
 
     // Long must be clearly longer: at least 2.2x the max short
     if (max_b * 10 < smax * 22) return 0;
 
-    // Check HIGH gaps clustering (±25%) to ensure consistent inter-bit separation
+    // Check HIGH gaps consistent inter-bit separation
     {
         unsigned int gmin = gap[0], gmax = gap[0];
         for (j = 1; j < CMD_LENGTH-1; j++) {
             if (gap[j] < gmin) gmin = gap[j];
             if (gap[j] > gmax) gmax = gap[j];
         }
-        if (gmax * 100 > gmin * 125) return 0;  // gaps not consistent
+        if (gmax * 100 > gmin * 125) return 0;  // toss if invalid gap 
     }
 
-    // Build one-hot mask MSB-first: first burst -> bit3, then bit2, bit1, bit0
     {
         unsigned char mask = 0;
         mask |= (1u << (CMD_LENGTH - 1 - max_i));  // only the long one sets its bit
@@ -125,13 +110,13 @@ static unsigned char decode_one_frame_strict(unsigned char* out_mask)
     }
 }
 
-// Optional: require two consecutive identical valid frames
-static unsigned char confirm_same_mask(unsigned char expect_mask)
+// Require two consecutive identical valid signals
+static unsigned char Confirm(unsigned char expect_mask)
 {
     unsigned int tries;
     unsigned char m2 = 0;
     for (tries = 0; tries < 3; tries++) {
-        if (decode_one_frame_strict(&m2) && m2 == expect_mask) return 1;
+        if (Decode(&m2) && m2 == expect_mask) return 1;
         __delay_cycles(8000);
     }
     return 0;
@@ -145,18 +130,18 @@ int main(void)
     WDTCTL = WDTPW | WDTHOLD;
     PM5CTL0 &= ~LOCKLPM5;
 
-    // LEDs (command indicators)
+    // Test LEDs 
     P3DIR |= BIT3 | BIT6 | BIT7;  // P3.3, P3.6, P3.7
     P2DIR |= BIT2;                // P2.2 as command LED
     P3OUT &= ~(BIT3 | BIT6 | BIT7);
     P2OUT &= ~BIT2;
 
-    // Motor pins (direction) — IN1=P1.3, IN2=P3.0, IN3=P3.1, IN4=P2.3
+    // Motor pins IN1=P1.3, IN2=P3.0, IN3=P3.1, IN4=P2.3
     P1DIR |= BIT0 | BIT3;         // P1.0 LED (unused), P1.3 IN1
     P2DIR |= BIT3 | BIT6 | BIT7;  // P2.3 IN4, P2.6 ENB, P2.7 ENA
     P3DIR |= BIT0 | BIT1;         // P3.0 IN2, P3.1 IN3
 
-    // TSOP receiver (P2.1, active LOW on carrier)
+    // TSOP receiver 
     P2DIR &= ~BIT1;
     P2REN &= ~BIT1;
     P2SEL0 &= ~BIT1;
@@ -172,50 +157,37 @@ int main(void)
     TB0CCR6  = (CCR0VAL+1) * 0.50;
     TB0CTL   = TBSSEL_2 | MC_1 | TBCLR;  // SMCLK, Up mode, clear
 
-    // Timer_A1 for inactivity timeout (ACLK continuous)
+    // Timer_A1 for inactivity timeout
     TA1CTL   = TASSEL_1 | MC_2 | TACLR;  // ACLK, continuous, clear
     TA1EX0   = TAIDEX_0;                 // no extra divide
     TA1CCTL1 = 0;                        // disabled until armed
 
     __enable_interrupt(); // enable timer ISRs
 
-    // Safe state on boot
     Stop1();
-
-    // Startup blink
-    for(i = 0; i < 6; i++) {
-        P3OUT |= (BIT3 | BIT6 | BIT7);
-        P2OUT |= BIT2;
-        __delay_cycles(300000);
-        P3OUT &= ~(BIT3 | BIT6 | BIT7);
-        P2OUT &= ~BIT2;
-        __delay_cycles(300000);
-    }
 
     while (1)
     {
         unsigned char mask = 0;
 
         // Arm watchdog before listening; ISR will Stop1 on inactivity
-        timeout_arm();  // one-shot compare in Timer_A continuous mode
+        timeout_arm();  // Compare in Timer_A continuous mode
 
-        // Decode one strict-valid 4-burst frame
-        if (decode_one_frame_strict(&mask)) {
+        // Decode one 4-burst frame
+        if (Decode(&mask)) {
 
-            // Optional: confirm same mask once more before acting
-            if (!confirm_same_mask(mask)) {
+            if (!Confirm(mask)) {
                 __delay_cycles(10000);
-                continue; // no refresh; require clean repeat
+                continue; 
             }
-
-            // Valid and confirmed -> refresh watchdog and act
+            // Refresh watchdog and act if valid
             timeout_refresh();
 
-            // Clear command LEDs
+            // Clear LEDs
             P3OUT &= ~(BIT3 | BIT6 | BIT7);
             P2OUT &= ~BIT2;
 
-            // Dispatch only the four allowed masks
+            // Acts only when valid signal received
             switch(mask)
             {
                 case 0x01:  // 0001
@@ -227,12 +199,12 @@ int main(void)
 
                 case 0x02:  // 0010
                     P3OUT |= BIT6;
-                    turnPerp();            // user-defined turn routine
+                    turnPerp();            
                     break;
 
                 case 0x04:  // 0100
                     P3OUT |= BIT7;
-                    turnPerp1();           // user-defined turn routine
+                    turnPerp1();         
                     break;
 
                 case 0x08:  // 1000
@@ -243,18 +215,17 @@ int main(void)
                     break;
 
                 default:
-                    // Not reachable due to strict decoder
                     break;
             }
 
-            // Hold-to-run: refresh only when the SAME strict-valid mask repeats
+            // Keep running if same valid signal received continously
             ir_inactive = 0;
             while (!ir_inactive) {
                 unsigned char m2 = 0;
-                if (decode_one_frame_strict(&m2) && m2 == mask) {
+                if (Decode(&m2) && m2 == mask) {
                     timeout_refresh();  // keep running only on same command repeating
                 }
-                // Different/invalid frames do not refresh; watchdog will expire and ISR will Stop1
+                // If different/ Invalid signal received, watchdog will expire and ISR will go to Stop1
             }
 
             // After timeout, ISR has called Stop1; clear LEDs
@@ -263,13 +234,11 @@ int main(void)
             __delay_cycles(50000);
 
         } else {
-            // No strict-valid frame now; let watchdog run toward ISR stop
             __delay_cycles(20000);
         }
     }
 }
 
-// ===================== Motor helpers (complementary inputs) =====================
 void Straight(void){
     // Forward both motors
     P1OUT |=  BIT3;   // IN1 = 1
@@ -292,33 +261,31 @@ void Stop1(void){
     P2OUT &= ~BIT3;
 }
 void turnPerp(void){
-    // Pivot/turn left: left motor backward, right motor forward
     TB0CCR6 = (CCR0VAL+1) * 0.75;  // ENA
     TB0CCR5 = (CCR0VAL+1) * 0.75;  // ENB
-    P1OUT &= ~BIT3;   // IN1 = 0 (left back)
+    P1OUT &= ~BIT3;   // IN1 = 0
     P3OUT |=  BIT0;   // IN2 = 1
-    P3OUT |=  BIT1;   // IN3 = 1 (right forward)
+    P3OUT |=  BIT1;   // IN3 = 1 
     P2OUT &= ~BIT3;   // IN4 = 0
 }
 void turnPerp1(void){
-    // Pivot/turn right: left motor forward, right motor backward
     TB0CCR6 = (CCR0VAL+1) * 0.75;  // ENA
     TB0CCR5 = (CCR0VAL+1) * 0.75;  // ENB
-    P1OUT |=  BIT3;   // IN1 = 1 (left forward)
+    P1OUT |=  BIT3;   // IN1 = 1
     P3OUT &= ~BIT0;   // IN2 = 0
-    P3OUT &= ~BIT1;   // IN3 = 0 (right back)
+    P3OUT &= ~BIT1;   // IN3 = 0 
     P2OUT |=  BIT3;   // IN4 = 1
 }
 
-// ===================== Timer_A1 ISR (inactivity timeout) =====================
+//Timer_A1 ISR (inactivity timeout)
 #pragma vector = TIMER1_A1_VECTOR
 __interrupt void TIMER1_A1_ISR(void)
 {
     switch (TA1IV) {
-        case TA1IV_TACCR1:                    // CCR1 compare hit (watchdog expired)
-            TA1CCTL1 &= ~(CCIE | CCIFG);      // one-shot: disable + clear
-            ir_inactive = 1;                  // tell main loop timeout occurred
-            Stop1();                          // safe stop on inactivity
+        case TA1IV_TACCR1:                    // Watchdog expired
+            TA1CCTL1 &= ~(CCIE | CCIFG);      // disable + clear
+            ir_inactive = 1;                  
+            Stop1();                         
             break;
         default:
             break;
