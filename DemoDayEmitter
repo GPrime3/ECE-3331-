@@ -1,17 +1,16 @@
+// Emitter7 edited to send 3 signals for every rising edge on input
 #include <msp430.h>
-
-// Much simpler timing - no PWM, just on/off with delays
-#define BIT_DURATION    10000  // 10ms per bit - slow enough for receiver
+#define BIT_DURATION    10000  // 10ms per bit
 #define CARRIER_CYCLES  38     // 38 cycles of 38kHz per carrier burst
 #define CARRIER_PERIOD  10     // 26 cycles ≈ 38kHz (8MHz/38kHz ≈ 210)
 
-unsigned char signal[4];
+unsigned char signal[4]; //array storing signal meant to be sent
 unsigned int repeat_counter = 0;
-unsigned int send_count = 0;        // NEW: Track number of sends
+unsigned int send_count = 0;        // To track signals sent per button press
 #define REPEAT_DELAY    50
-#define MAX_SENDS       3           // NEW: Maximum signals per button hold
+#define MAX_SENDS       3           // Maximum signals per button hold
 
-// Simple function to generate 38kHz carrier bursts
+// To generate 38kHz carrier bursts
 void carrier_burst(unsigned int duration) {
     unsigned int i, j;
     
@@ -24,10 +23,9 @@ void carrier_burst(unsigned int duration) {
     }
 }
 
-void send_signal(void) {
+void send_signal(void) {    // to send a 4 bit signal with separation needed for receiver
     unsigned long i;
     
-    // Send all 4 bits with clear separation
     for(i = 0; i < 4; i++) {
         if(signal[i] == 1) {
             // Bit '1': Long carrier burst
@@ -50,7 +48,7 @@ int main(void) {
     WDTCTL = WDTPW | WDTHOLD;
     PM5CTL0 &= ~LOCKLPM5;
 
-    // LEDs
+    // Test LEDs for easier hardware diagnosis
     P2DIR |= BIT1 | BIT2;
     P1DIR |= BIT3 | BIT5;
     P3DIR |= BIT6;
@@ -70,29 +68,20 @@ int main(void) {
     P1REN |= (BIT3);
     P1OUT &= ~(BIT3);
 
-    // P2.7 as simple GPIO for IR LED (no PWM)
+    // P2.7 to send PWM to IR emitter
     P2DIR |= BIT7;
     P2SEL0 &= ~BIT7;
     P2SEL1 &= ~BIT7;
     P2OUT &= ~BIT7;
 
-    // Startup blink
-    for(i = 0; i < 5; i++) {
-        P1OUT ^= BIT5;
-        __delay_cycles(800000);
-    }
-    P1OUT &= ~BIT5;
-    __delay_cycles(1000000);
-
     while(1) {
         __delay_cycles(2000);
         
-        // Read button states
+        // Constantly checks which button is pressed
         button_state = 0;
-        
         if((P3IN & BIT0) != 0) {
             button_state = 1;
-        } else if((P3IN & BIT1) != 0) {
+        } else if((P3IN & BIT1) != 0) { //1 through 4 buttons used for directional movement
             button_state = 2;
         } else if((P2IN & BIT6) != 0) {
             button_state = 3;
@@ -100,15 +89,14 @@ int main(void) {
             button_state = 4;
         } else if((P2IN & BIT3) != 0) {
             button_state = 5;
-        } else if((P2IN & BIT2) != 0) {
+        } else if((P2IN & BIT2) != 0) {//Hammer
             button_state = 6;
-        } else if((P1IN & BIT3) != 0) {
+        } else if((P1IN & BIT3) != 0) {//Stop
             button_state = 7;
         }
         
         // Handle button press and repeat
-        if(button_state != 0) {
-            // NEW BUTTON PRESS
+        if(button_state != 0) {//Button pressed
             if(button_state != last_button_state) {
                 repeat_counter = 0;
                 send_count = 0;         // Reset send counter on new button
@@ -142,36 +130,31 @@ int main(void) {
                         P2OUT &= ~BIT2;
                         signal[0] = 1; signal[1] = 0; signal[2] = 0; signal[3] = 1;
                         break;
-                }
-                
-                // Send first signal immediately
+                }  
+                // Send first signal
                 send_signal();
                 send_count++;           // Increment send counter
             } 
-            // BUTTON HELD - SEND REPEATS (but max 3 total)
+            // Button is held -> repeat until threshold
             else if(repeat_counter >= REPEAT_DELAY && send_count < MAX_SENDS) {
                 send_signal();
                 send_count++;           // Increment send counter
                 repeat_counter = 0;
             }
-            
             repeat_counter++;
         } else {
-            // Button released - reset counters
+            // Button released -> reset counters
             repeat_counter = 0;
             send_count = 0;
-        }
-        
-        // Reset LEDs when button released
+        }       
+        // Reset LEDs
         if(button_state == 0 && last_button_state != 0) {
             P1OUT |= BIT3;
             P3OUT |= BIT6;
             P2OUT |= BIT1;
             P2OUT |= BIT2;
         }
-        
         last_button_state = button_state;
-        
         __delay_cycles(1000);
     }
 }
