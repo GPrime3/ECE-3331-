@@ -1,5 +1,5 @@
+//Code for microcontroller receiving IR signal 
 #include <msp430.h>
-
 #define CMD_LENGTH 4
 #define F_SMCLK (1000000UL)
 #define F_PWM   20000UL
