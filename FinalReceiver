@@ -152,8 +152,8 @@ int main(void)
     TA1CCR1 = 1500;
     TA1CTL = TASSEL__SMCLK | MC__UP | TACLR;
 
-    __enable_interrupt(); // Setup ISR
-    Stop1();
+    //__enable_interrupt(); // Setup ISR
+    //Stop1();
 
     while (1)
     {
