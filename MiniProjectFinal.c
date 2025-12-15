@@ -1,7 +1,7 @@
 #include <driverlib.h>
 #include <msp430.h>
 //Motors in this project ran using a H-bridge that controls direction of motors using IN pins 1 through 4
-// --- Function Prototypes ---
+//Prototypes
 void Straight(void);
 void turnPerp(void);
 void Stop1(void);
@@ -14,13 +14,13 @@ int main(void) {
     WDTCTL  = WDTPW | WDTHOLD;   // Stop watchdog timer
     PM5CTL0 &= ~LOCKLPM5; 
 
-    // --- PIN setup ---
+    // PIN setup
     P1DIR |= BIT0 | BIT3;        // P1.0 LED, P1.3 IN1
     P2DIR |= BIT3 | BIT6 | BIT7; // P2.3 IN4, P2.6 ENA, P2.7 ENB
     P3DIR |= BIT0 | BIT1;        // P3.0 IN2, P3.1 IN3
     
 
-    // --- PWM setup (P2.6 = TB0.5, P2.7 = TB0.6) ---
+    // PWM setup (P2.6 = TB0.5, P2.7 = TB0.6)
     P2SEL0 |= BIT6 | BIT7;   
     P2SEL1 &= ~(BIT6 | BIT7);
 
