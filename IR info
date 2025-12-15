@@ -1,4 +1,7 @@
-IR Packet info:
+IR Communication works through the repeated turning on and off of an IR LED at 38 kHz in order to transfer information. This blinking is formatted in a way that the receiver is able to decode and obtain meaningful information from it.
+Followed a “gap” (Certain No. of Cycles) between bits as specified by the receiver’s specifications.
+
+IR Components used:
 
 6x  IRLB8743  https://www.infineon.com/assets/row/public/documents/24/49/infineon-irlb8743-datasheet-en.pdf?fileId=5546d462533600a4015356605d6b2593
 
@@ -6,9 +9,9 @@ IR Packet info:
 
 4x LM339N  -comparitor- https://www.ti.com/lit/ds/symlink/lm339-n.pdf?ts=1759336875886&ref_url=https%253A%252F%252Fwww.ti.com%252Fproduct%252FLM339-N
 
-4x led?
+4x led
 
 4x reciever https://www.vishay.com/docs/82491/tsop382.pdf
 
 
-https://cdn-shop.adafruit.com/datasheets/tsop382.pdf
+1x https://cdn-shop.adafruit.com/datasheets/tsop382.pdf
