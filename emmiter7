@@ -1,6 +1,5 @@
 #include <msp430.h>
 
-// Much simpler timing - no PWM, just on/off with delays
 #define BIT_DURATION    10000  // 10ms per bit - slow enough for receiver
 #define CARRIER_CYCLES  38     // 38 cycles of 38kHz per carrier burst
 #define CARRIER_PERIOD  10     // 26 cycles ≈ 38kHz (8MHz/38kHz ≈ 210)
@@ -9,7 +8,6 @@ unsigned char signal[4];
 unsigned int repeat_counter = 0;
 #define REPEAT_DELAY    50
 
-// Simple function to generate 38kHz carrier bursts
 void carrier_burst(unsigned int duration) {
     unsigned int i, j;
     
@@ -25,7 +23,7 @@ void carrier_burst(unsigned int duration) {
 void send_signal(void) {
     unsigned long i;
     
-    // Send all 4 bits with clear separation
+    // Send all 4 bits in the array with clear separation
     for(i = 0; i < 4; i++) {
         if(signal[i] == 1) {
             // Bit '1': Long carrier burst
@@ -35,7 +33,6 @@ void send_signal(void) {
             carrier_burst(CARRIER_CYCLES);
         }
         
-        // Fixed gap between bits (no carrier)
         __delay_cycles(BIT_DURATION);
     }
 }
@@ -68,19 +65,11 @@ int main(void) {
     P1REN |= (BIT3);
     P1OUT &= ~(BIT3);
 
-    // P2.7 as simple GPIO for IR LED (no PWM)
+    // P2.7 for IR LED 
     P2DIR |= BIT7;
     P2SEL0 &= ~BIT7;
     P2SEL1 &= ~BIT7;
     P2OUT &= ~BIT7;
-
-    // Startup blink
-    for(i = 0; i < 5; i++) {
-        P1OUT ^= BIT5;
-        __delay_cycles(800000);
-    }
-    P1OUT &= ~BIT5;
-    __delay_cycles(1000000);
 
     while(1) {
         __delay_cycles(2000);
