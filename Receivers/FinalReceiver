@@ -1,15 +1,14 @@
+//Code for microcontroller receiving IR signal 
+//Removed ISR from Receiver V6
 #include <msp430.h>
-
-// ===================== Config =====================
 #define CMD_LENGTH 4
 #define F_SMCLK (1000000UL)
 #define F_PWM   20000UL
 #define CCR0VAL ((F_SMCLK/F_PWM)-1)
 
-// ===================== Prototypes =====================
-static unsigned char decode_one_frame_strict(unsigned char* out_mask);
-static unsigned char confirm_same_mask(unsigned char expect_mask);
-
+//Prototypes
+static unsigned char Decode(unsigned char* out_mask);
+static unsigned char Confirm(unsigned char expect_mask);
 void Straight(void);
 void Back(void);
 void Stop1(void);
@@ -17,14 +16,13 @@ void turnPerp(void);
 void turnPerp1(void);
 void move_servo(void);
 
-// ===================== Modified Decoder - Supports 0x0C =====================
-static unsigned char decode_one_frame_strict(unsigned char* out_mask)
+static unsigned char Decode(unsigned char* out_mask)
 {
     unsigned int burst[CMD_LENGTH];
     unsigned int gap[CMD_LENGTH-1];
     unsigned int j, timeout;
 
-    // Wait for first LOW
+    // Receiver is active LOW, therefore counting begins when LOW
     timeout = 0;
     while ((P2IN & BIT1) != 0) {
         if (++timeout > 30000) return 0;
@@ -50,7 +48,7 @@ static unsigned char decode_one_frame_strict(unsigned char* out_mask)
         }
     }
 
-    // FIXED: Find minimum and maximum bursts instead of average
+    // Counts valid bursts
     unsigned int min_burst = burst[0];
     unsigned int max_burst = burst[0];
     
@@ -62,7 +60,7 @@ static unsigned char decode_one_frame_strict(unsigned char* out_mask)
     // Threshold = midpoint between min and max
     unsigned int threshold = (min_burst + max_burst) / 2;
 
-    // Build mask: mark all bursts > threshold as "long"
+    // Mark all bursts > threshold as "long"
     unsigned char mask = 0;
     unsigned char long_count = 0;
     
@@ -82,7 +80,7 @@ static unsigned char decode_one_frame_strict(unsigned char* out_mask)
         return 0;
     }
 
-    // Check gap consistency (±25%)
+    // Confirm gap consistency (±25%)
     {
         unsigned int gmin = gap[0], gmax = gap[0];
         for (j = 1; j < CMD_LENGTH-1; j++) {
@@ -96,19 +94,17 @@ static unsigned char decode_one_frame_strict(unsigned char* out_mask)
     return 1;
 }
 
-
-static unsigned char confirm_same_mask(unsigned char expect_mask)
+static unsigned char Confirm(unsigned char expect_mask)
 {
     unsigned int tries;
     unsigned char m2 = 0;
     for (tries = 0; tries < 3; tries++) {
-        if (decode_one_frame_strict(&m2) && m2 == expect_mask) return 1;
+        if (Decode(&m2) && m2 == expect_mask) return 1;
         __delay_cycles(8000);
     }
     return 0;
 }
 
-// ===================== Main =====================
 int main(void)
 {
     unsigned int i;
@@ -129,18 +125,18 @@ int main(void)
     P2DIR |= BIT3 | BIT6 | BIT7;
     P3DIR |= BIT0 | BIT1;
 
-    // Configure P3.3 for TA1.1 servo output
+    // P3.3 for TimerA1.1 servo output
     P3DIR |= BIT3;
     P3SEL1 |= BIT3;
     P3SEL0 &= ~BIT3;
 
-    // TSOP receiver
+    // TSOP Receiver
     P2DIR &= ~BIT1;
     P2REN &= ~BIT1;
     P2SEL0 &= ~BIT1;
     P2SEL1 &= ~BIT1;
 
-    // Motor PWM on TB0
+    // Motor PWM utilize TimerB
     P2SEL0 |= BIT6 | BIT7;
     P2SEL1 &= ~(BIT6 | BIT7);
     TB0CCR0  = CCR0VAL;
@@ -150,28 +146,21 @@ int main(void)
     TB0CCR6  = (CCR0VAL+1) * 0.50;
     TB0CTL   = TBSSEL__SMCLK | MC__UP | TBCLR;
 
-    // Timer A1 for servo PWM (always running)
+    // Timer A1 for servo PWM 
     TA1CCR0 = 20000 - 1;
     TA1CCTL1 = OUTMOD_7;
     TA1CCR1 = 1500;
     TA1CTL = TASSEL__SMCLK | MC__UP | TACLR;
 
-    __enable_interrupt();
-    Stop1();
-
-    // Startup blink
-    for(i = 0; i < 6; i++) {
-        P1OUT ^= BIT0;
-        __delay_cycles(300000);
-    }
-    P1OUT &= ~BIT0;
+    //__enable_interrupt(); // Setup ISR
+    //Stop1();
 
     while (1)
     {
         unsigned char mask = 0;
 
-        if (decode_one_frame_strict(&mask)) {
-            if (!confirm_same_mask(mask)) {
+        if (Decode(&mask)) {
+            if (!Confirm(mask)) {
                 __delay_cycles(10000);
                 continue;
             }
@@ -219,7 +208,7 @@ int main(void)
                     break;
             }
 
-            // Clear LEDs after command
+            // Clear LEDs 
             P3OUT &= ~(BIT6 | BIT7);
             P2OUT &= ~BIT2;
             P1OUT &= ~BIT0;
@@ -231,7 +220,6 @@ int main(void)
     }
 }
 
-// ===================== Servo Function =====================
 void move_servo(void) {
     TA1CCR1 = 1000;             // 0 degrees
     __delay_cycles(1500000);
@@ -242,10 +230,8 @@ void move_servo(void) {
     TA1CCR1 = 1000;             // 0 degrees
     __delay_cycles(1500000);
     
-    TA1CCR1 = 1500;             // Neutral
 }
 
-// ===================== Motor Functions =====================
 void Straight(void){
     P1OUT |=  BIT3;
     P3OUT &= ~BIT0;

@@ -1,6 +1,5 @@
 #include <msp430.h>
 
-// Much simpler timing - no PWM, just on/off with delays
 #define BIT_DURATION    10000  // 10ms per bit - slow enough for receiver
 #define CARRIER_CYCLES  38     // 38 cycles of 38kHz per carrier burst
 #define CARRIER_PERIOD  10     // 26 cycles ≈ 38kHz (8MHz/38kHz ≈ 210)
@@ -9,7 +8,6 @@ unsigned char signal[4];
 unsigned int repeat_counter = 0;
 #define REPEAT_DELAY    50
 
-// Simple function to generate 38kHz carrier bursts
 void carrier_burst(unsigned int duration) {
     unsigned int i, j;
     
@@ -25,7 +23,7 @@ void carrier_burst(unsigned int duration) {
 void send_signal(void) {
     unsigned long i;
     
-    // Send all 4 bits with clear separation
+    // Send all 4 bits in the array with clear separation
     for(i = 0; i < 4; i++) {
         if(signal[i] == 1) {
             // Bit '1': Long carrier burst
@@ -35,7 +33,6 @@ void send_signal(void) {
             carrier_burst(CARRIER_CYCLES);
         }
         
-        // Fixed gap between bits (no carrier)
         __delay_cycles(BIT_DURATION);
     }
 }
@@ -61,23 +58,18 @@ int main(void) {
     P3DIR &= ~(BIT0 | BIT1 | BIT3);
     P3REN |= (BIT0 | BIT1 | BIT3);
     P3OUT &= ~(BIT0 | BIT1 | BIT3);
-    P2DIR &= ~BIT6;
-    P2REN |= BIT6;
-    P2OUT &= ~BIT6;
+    P2DIR &= ~(BIT6|BIT3|BIT2);
+    P2REN |= BIT6|BIT3|BIT2;
+    P2OUT &= ~(BIT6|BIT3|BIT2);
+    P1DIR &= ~(BIT3);
+    P1REN |= (BIT3);
+    P1OUT &= ~(BIT3);
 
-    // P2.7 as simple GPIO for IR LED (no PWM)
+    // P2.7 for IR LED 
     P2DIR |= BIT7;
     P2SEL0 &= ~BIT7;
     P2SEL1 &= ~BIT7;
     P2OUT &= ~BIT7;
-
-    // Startup blink
-    for(i = 0; i < 5; i++) {
-        P1OUT ^= BIT5;
-        __delay_cycles(800000);
-    }
-    P1OUT &= ~BIT5;
-    __delay_cycles(1000000);
 
     while(1) {
         __delay_cycles(2000);
@@ -93,8 +85,13 @@ int main(void) {
             button_state = 3;
         } else if((P3IN & BIT3) != 0) {
             button_state = 4;
+        }else if((P2IN & BIT3) != 0) {
+            button_state = 5;
+        }else if((P2IN & BIT2) != 0) {
+            button_state = 6;
+        }else if((P1IN & BIT3) != 0) {
+            button_state = 7;
         }
-        
         // Handle button press and repeat
         if(button_state != 0) {
             if(button_state != last_button_state) {
@@ -117,6 +114,19 @@ int main(void) {
                         P2OUT &= ~BIT2;
                         signal[0] = 1; signal[1] = 0; signal[2] = 0; signal[3] = 0;
                         break;
+                    case 5:  // 1100
+                        P2OUT &= ~BIT2;
+                        signal[0] = 1; signal[1] = 1; signal[2] = 0; signal[3] = 0;
+                        break;
+                    case 6:  // 1110
+                        P2OUT &= ~BIT2;
+                        signal[0] = 1; signal[1] = 1; signal[2] = 1; signal[3] = 0;
+                        break;
+                    case 7:  // 1001 //overdrive
+                        P2OUT &= ~BIT2;
+                        signal[0] = 1; signal[1] = 1; signal[2] = 0; signal[3] = 1;
+                        break;
+                        
                 }
                 
                 send_signal();
